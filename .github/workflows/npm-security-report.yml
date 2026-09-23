@@ -39,12 +39,18 @@ jobs:
           npm audit --omit=dev --audit-level=high --json > security-reports/npm-audit.json
           status=$?
           set -e
-          if [ "$status" -ne 0 ]; then
-            echo "npm audit returned $status. Review vulnerabilities and registry errors in the report." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "npm audit completed without high-severity production vulnerability findings." >> "$GITHUB_STEP_SUMMARY"
-          fi
-          echo "Advisory baseline: a successful workflow is not a clean security certification." >> "$GITHUB_STEP_SUMMARY"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          report = json.loads(Path('security-reports/npm-audit.json').read_text())
+          counts = report.get('metadata', {}).get('vulnerabilities') if isinstance(report, dict) else None
+          if not isinstance(counts, dict):
+              raise SystemExit('npm audit did not produce valid vulnerability metadata; inspect the report')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+              summary.write(f"Production npm audit: {counts.get('high', 0)} high, {counts.get('critical', 0)} critical, {counts.get('moderate', 0)} moderate vulnerabilities.\n")
+              summary.write('Advisory baseline: vulnerability findings do not currently block merges. Review the JSON report.\n')
+          PY
       - name: Archive dependency report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
